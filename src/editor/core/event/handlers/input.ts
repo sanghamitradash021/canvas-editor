@@ -6,7 +6,12 @@ import { splitText } from '../../../utils'
 import { formatElementContext, getAnchorElement } from '../../../utils/element'
 import { CanvasEvent } from '../CanvasEvent'
 
-export function input(data: string, host: CanvasEvent) {
+export function input(
+  data: string,
+  host: CanvasEvent,
+  options?: { isPaste?: boolean }
+) {
+  const isPaste = !!options?.isPaste
   const draw = host.getDraw()
   const isReadonly = draw.isReadonly()
   if (isReadonly) return
@@ -36,19 +41,22 @@ export function input(data: string, host: CanvasEvent) {
   const elementList = draw.getElementList()
   const copyElement = getAnchorElement(elementList, endIndex)
   if (!copyElement) return
+  const pendingStyle = rangeManager.getPendingStyle()
+  const hasPending = !isPaste && Object.keys(pendingStyle).length > 0
   const inputData: IElement[] = splitText(text).map(value => {
     const newElement: IElement = {
       value
     }
     const nextElement = elementList[endIndex + 1]
-    if (
-      copyElement.type === TEXT ||
-      (!copyElement.type && copyElement.value !== ZERO) ||
-      (copyElement.type === HYPERLINK && nextElement?.type === HYPERLINK) ||
-      (copyElement.type === DATE && nextElement?.type === DATE) ||
-      (copyElement.type === SUBSCRIPT && nextElement?.type === SUBSCRIPT) ||
-      (copyElement.type === SUPERSCRIPT && nextElement?.type === SUPERSCRIPT)
-    ) {
+    const shouldInheritAttrs =
+      !isPaste &&
+      (copyElement.type === TEXT ||
+        (!copyElement.type && copyElement.value !== ZERO) ||
+        (copyElement.type === HYPERLINK && nextElement?.type === HYPERLINK) ||
+        (copyElement.type === DATE && nextElement?.type === DATE) ||
+        (copyElement.type === SUBSCRIPT && nextElement?.type === SUBSCRIPT) ||
+        (copyElement.type === SUPERSCRIPT && nextElement?.type === SUPERSCRIPT))
+    if (shouldInheritAttrs) {
       EDITOR_ELEMENT_COPY_ATTR.forEach(attr => {
         const value = copyElement[attr] as never
         if (value !== undefined) {
@@ -56,11 +64,26 @@ export function input(data: string, host: CanvasEvent) {
         }
       })
     }
+    if (hasPending) {
+      (Object.keys(pendingStyle) as Array<keyof typeof pendingStyle>).forEach(
+        k => {
+          const v = pendingStyle[k]
+          if (v === undefined || v === null || v === '' || v === false) {
+            delete (newElement as unknown as Record<string, unknown>)[k]
+          } else {
+            (newElement as unknown as Record<string, unknown>)[k] = v
+          }
+        }
+      )
+    }
     if (isComposing) {
       newElement.underline = true
     }
     return newElement
   })
+  if (hasPending && !isComposing) {
+    rangeManager.consumePendingStyle()
+  }
   // 控件-移除placeholder
   let curIndex: number
   if (activeControl && !control.isRangInPostfix()) {
@@ -75,7 +98,16 @@ export function input(data: string, host: CanvasEvent) {
     curIndex = startIndex + inputData.length
   }
   if (~curIndex) {
-    rangeManager.setRange(curIndex, curIndex)
+    rangeManager.setRange(
+      curIndex,
+      curIndex,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      isComposing
+    )
     draw.render({
       curIndex,
       isSubmitHistory: !isComposing

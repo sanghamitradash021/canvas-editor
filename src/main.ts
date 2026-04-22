@@ -310,6 +310,46 @@ window.onload = function () {
     }
   }
 
+  const paragraphSpacingDom = document.querySelector<HTMLDivElement>(
+    '.menu-item__paragraph-spacing'
+  )!
+  const paragraphSpacingOptions = paragraphSpacingDom.querySelector<HTMLDivElement>(
+    '.options'
+  )!
+  const psBeforeInput = paragraphSpacingOptions.querySelector<HTMLInputElement>(
+    '.paragraph-spacing__before'
+  )!
+  const psAfterInput = paragraphSpacingOptions.querySelector<HTMLInputElement>(
+    '.paragraph-spacing__after'
+  )!
+  const psApplyBtn = paragraphSpacingOptions.querySelector<HTMLButtonElement>(
+    '.paragraph-spacing__apply'
+  )!
+  paragraphSpacingDom.onclick = function () {
+    paragraphSpacingOptions.classList.toggle('visible')
+  }
+  paragraphSpacingOptions.onclick = function (evt) {
+    evt.stopPropagation()
+    const li = evt.target as HTMLLIElement
+    if (li.tagName !== 'LI' || li.dataset.psBefore === undefined) return
+    const before = Number(li.dataset.psBefore)
+    const after = Number(li.dataset.psAfter)
+    psBeforeInput.value = String(before)
+    psAfterInput.value = String(after)
+    instance.command.executeParagraphSpacing(before, after)
+    paragraphSpacingOptions.classList.remove('visible')
+  }
+  psBeforeInput.onclick = evt => evt.stopPropagation()
+  psAfterInput.onclick = evt => evt.stopPropagation()
+  psApplyBtn.onclick = function (evt) {
+    evt.stopPropagation()
+    const before = parseFloat(psBeforeInput.value)
+    const after = parseFloat(psAfterInput.value)
+    if (isNaN(before) || isNaN(after) || before < 0 || after < 0) return
+    instance.command.executeParagraphSpacing(before, after)
+    paragraphSpacingOptions.classList.remove('visible')
+  }
+
   const listDom = document.querySelector<HTMLDivElement>('.menu-item__list')!
   listDom.title = `列表(${isApple ? '⌘' : 'Ctrl'}+Shift+U)`
   const listOptionDom = listDom.querySelector<HTMLDivElement>('.options')!
@@ -1350,6 +1390,10 @@ window.onload = function () {
     } else if (customSpacingInput) {
       customSpacingInput.value = String(payload.rowMargin)
     }
+
+    // Paragraph spacing sync
+    psBeforeInput.value = String(payload.marginTop || 0)
+    psAfterInput.value = String(payload.marginBottom || 0)
 
     // Function
     payload.undo

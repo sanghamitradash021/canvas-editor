@@ -971,9 +971,12 @@ export class Draw {
     const listStyleMap = this.listParticle.computeListStyle(ctx, elementList)
     const rowList: IRow[] = []
     if (elementList.length) {
+      const firstParagraphTop = elementList[0]?.marginTop
+        ? elementList[0].marginTop! * this.options.scale
+        : 0
       rowList.push({
         width: 0,
-        height: 0,
+        height: firstParagraphTop,
         ascent: 0,
         elementList: [],
         startIndex: 0,
@@ -1002,8 +1005,14 @@ export class Draw {
         curListItemIndentLevel = 0
       }
       // 实际可用宽度
-      const baseOffsetX = element.listId ? listStyleMap.get(element.listId) || 0 : 0
-      const listIndentOffset = element.listId ? curListItemIndentLevel * this.listParticle.LIST_INDENT_INCREMENT * scale : 0
+      const baseOffsetX = element.listId
+        ? listStyleMap.get(element.listId) || 0
+        : 0
+      const listIndentOffset = element.listId
+        ? curListItemIndentLevel *
+          this.listParticle.LIST_INDENT_INCREMENT *
+          scale
+        : 0
       const offsetX = baseOffsetX + listIndentOffset
       const availableWidth = innerWidth - offsetX
       if (
@@ -1153,7 +1162,10 @@ export class Draw {
                 height
               ) {
                 // 行高超过单页可用高度，尝试拆分该行
-                if (trHeight > maxTableContentHeight && maxTableContentHeight > 0) {
+                if (
+                  trHeight > maxTableContentHeight &&
+                  maxTableContentHeight > 0
+                ) {
                   splitRowIndex = r
                   splitAvailableHeight =
                     height - (curPagePreHeight + rowMarginHeight + preTrHeight)
@@ -1199,7 +1211,10 @@ export class Draw {
                 let splitCount = 0
                 for (let r = 0; r < rowList.length; r++) {
                   const row = rowList[r]
-                  if (accHeight + row.height <= maxContentHeightPx || splitCount === 0) {
+                  if (
+                    accHeight + row.height <= maxContentHeightPx ||
+                    splitCount === 0
+                  ) {
                     accHeight += row.height
                     splitCount++
                   } else {
@@ -1461,7 +1476,8 @@ export class Draw {
         }
         if (element.listId) {
           row.isList = true
-          row.offsetX = (listStyleMap.get(element.listId!) || 0) + listIndentOffset
+          row.offsetX =
+            (listStyleMap.get(element.listId!) || 0) + listIndentOffset
           row.listIndentOffset = listIndentOffset
           row.listIndex = listIndex
         }
@@ -1474,6 +1490,11 @@ export class Draw {
         }
         curRow.elementList.push(rowElement)
       }
+    }
+    const lastRow = rowList[rowList.length - 1]
+    const lastElement = elementList[elementList.length - 1]
+    if (lastRow && lastElement?.marginBottom) {
+      lastRow.height += lastElement.marginBottom * this.options.scale
     }
     return rowList
   }
@@ -1531,12 +1552,7 @@ export class Draw {
     const { rowList, pageNo, elementList, positionList, startIndex, zone } =
       payload
     // const { scale, tdPadding } = this.options
-    const {
-      scale,
-      tdPadding,
-      defaultRowMargin,
-      defaultSize
-    } = this.options
+    const { scale, tdPadding, defaultRowMargin, defaultSize } = this.options
     const { isCrossRowCol, tableId } = this.range.getRange()
     let index = startIndex
     for (let i = 0; i < rowList.length; i++) {
@@ -1638,10 +1654,7 @@ export class Draw {
           const ulLineHeight = ulFontSize * ulLineSpacing
           const ulContentHeight =
             metrics.boundingBoxAscent + metrics.boundingBoxDescent
-          const ulLineMargin = Math.max(
-            0,
-            (ulLineHeight - ulContentHeight) / 2
-          )
+          const ulLineMargin = Math.max(0, (ulLineHeight - ulContentHeight) / 2)
           this.underline.recordFillInfo(
             ctx,
             x,

@@ -89,6 +89,12 @@ export class CommandAdapt {
     return this.range.getContentStyles()
   }
 
+  private restoreCursorFocus() {
+    // Re-focus the agent textarea + redraw blinking cursor at current position
+    // so toolbar clicks don't drop focus or hide the caret.
+    this.draw.getCursor().drawCursor()
+  }
+
   public mode(payload: EditorMode) {
     const mode = this.draw.getMode()
     if (mode === payload) return
@@ -114,7 +120,7 @@ export class CommandAdapt {
     if (isReadonly) return
     const text = await navigator.clipboard.readText()
     if (text) {
-      this.canvasEvent.input(text)
+      this.canvasEvent.input(text, { isPaste: true })
     }
   }
 
@@ -216,11 +222,27 @@ export class CommandAdapt {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getSelection()
-    if (!selection) return
-    selection.forEach(el => {
-      el.font = payload
-    })
-    this.draw.render({ isSetCursor: false })
+    if (selection?.length) {
+      selection.forEach(el => {
+        el.font = payload
+      })
+      this.draw.render({ isSetCursor: false })
+    } else {
+      this.range.setPendingStyleValue('font', payload)
+      this.range.setRangeStyle()
+    }
+    this.restoreCursorFocus()
+  }
+
+  private getEffectiveSize(): number {
+    const { defaultSize } = this.options
+    const pending = this.range.getPendingStyle()
+    if (pending.size) return pending.size
+    const { endIndex } = this.range.getRange()
+    if (!~endIndex) return defaultSize
+    const elementList = this.draw.getElementList()
+    const anchor = elementList[endIndex]
+    return anchor?.size || defaultSize
   }
 
   public size(payload: number) {
@@ -229,69 +251,90 @@ export class CommandAdapt {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getTextLikeSelection()
-    if (!selection || !selection.length) return
-    let isExistUpdate = false
-    selection.forEach(el => {
-      if (
-        (!el.size && payload === defaultSize) ||
-        (el.size && el.size === payload)
-      ) {
-        return
+    if (selection && selection.length) {
+      let isExistUpdate = false
+      selection.forEach(el => {
+        if (
+          (!el.size && payload === defaultSize) ||
+          (el.size && el.size === payload)
+        ) {
+          return
+        }
+        el.size = payload
+        isExistUpdate = true
+      })
+      if (isExistUpdate) {
+        this.draw.render({ isSetCursor: false })
       }
-      el.size = payload
-      isExistUpdate = true
-    })
-    if (isExistUpdate) {
-      this.draw.render({ isSetCursor: false })
+    } else {
+      this.range.setPendingStyleValue('size', payload)
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public sizeAdd() {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getTextLikeSelection()
-    if (!selection || !selection.length) return
     const { defaultSize, maxSize } = this.options
-    let isExistUpdate = false
-    selection.forEach(el => {
-      if (!el.size) {
-        el.size = defaultSize
+    if (selection && selection.length) {
+      let isExistUpdate = false
+      selection.forEach(el => {
+        if (!el.size) {
+          el.size = defaultSize
+        }
+        if (el.size >= maxSize) return
+        if (el.size + 2 > maxSize) {
+          el.size = maxSize
+        } else {
+          el.size += 2
+        }
+        isExistUpdate = true
+      })
+      if (isExistUpdate) {
+        this.draw.render({ isSetCursor: false })
       }
-      if (el.size >= maxSize) return
-      if (el.size + 2 > maxSize) {
-        el.size = maxSize
-      } else {
-        el.size += 2
-      }
-      isExistUpdate = true
-    })
-    if (isExistUpdate) {
-      this.draw.render({ isSetCursor: false })
+    } else {
+      const current = this.getEffectiveSize()
+      if (current >= maxSize) return
+      const next = current + 2 > maxSize ? maxSize : current + 2
+      this.range.setPendingStyleValue('size', next)
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public sizeMinus() {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getTextLikeSelection()
-    if (!selection || !selection.length) return
     const { defaultSize, minSize } = this.options
-    let isExistUpdate = false
-    selection.forEach(el => {
-      if (!el.size) {
-        el.size = defaultSize
+    if (selection && selection.length) {
+      let isExistUpdate = false
+      selection.forEach(el => {
+        if (!el.size) {
+          el.size = defaultSize
+        }
+        if (el.size <= minSize) return
+        if (el.size - 2 < minSize) {
+          el.size = minSize
+        } else {
+          el.size -= 2
+        }
+        isExistUpdate = true
+      })
+      if (isExistUpdate) {
+        this.draw.render({ isSetCursor: false })
       }
-      if (el.size <= minSize) return
-      if (el.size - 2 < minSize) {
-        el.size = minSize
-      } else {
-        el.size -= 2
-      }
-      isExistUpdate = true
-    })
-    if (isExistUpdate) {
-      this.draw.render({ isSetCursor: false })
+    } else {
+      const current = this.getEffectiveSize()
+      if (current <= minSize) return
+      const next = current - 2 < minSize ? minSize : current - 2
+      this.range.setPendingStyleValue('size', next)
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public bold() {
@@ -305,12 +348,10 @@ export class CommandAdapt {
       })
       this.draw.render({ isSetCursor: false })
     } else {
-      const elementList = this.draw.getElementList()
-      const endIndex = elementList.length - 1
-      const enterElement = elementList[endIndex]
-      enterElement.bold = !enterElement.bold
-      this.draw.render({ curIndex: endIndex, isCompute: false })
+      this.range.togglePendingBooleanStyle('bold')
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public italic() {
@@ -324,12 +365,10 @@ export class CommandAdapt {
       })
       this.draw.render({ isSetCursor: false })
     } else {
-      const elementList = this.draw.getElementList()
-      const endIndex = elementList.length - 1
-      const enterElement = elementList[endIndex]
-      enterElement.italic = !enterElement.italic
-      this.draw.render({ curIndex: endIndex, isCompute: false })
+      this.range.togglePendingBooleanStyle('italic')
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public underline() {
@@ -343,24 +382,27 @@ export class CommandAdapt {
       })
       this.draw.render({ isSetCursor: false })
     } else {
-      const elementList = this.draw.getElementList()
-      const endIndex = elementList.length - 1
-      const enterElement = elementList[endIndex]
-      enterElement.underline = !enterElement.underline
-      this.draw.render({ curIndex: endIndex, isCompute: false })
+      this.range.togglePendingBooleanStyle('underline')
+      this.range.setRangeStyle()
     }
+    this.restoreCursorFocus()
   }
 
   public strikeout() {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getSelection()
-    if (!selection) return
-    const noStrikeoutIndex = selection.findIndex(s => !s.strikeout)
-    selection.forEach(el => {
-      el.strikeout = !!~noStrikeoutIndex
-    })
-    this.draw.render({ isSetCursor: false })
+    if (selection?.length) {
+      const noStrikeoutIndex = selection.findIndex(s => !s.strikeout)
+      selection.forEach(el => {
+        el.strikeout = !!~noStrikeoutIndex
+      })
+      this.draw.render({ isSetCursor: false })
+    } else {
+      this.range.togglePendingBooleanStyle('strikeout')
+      this.range.setRangeStyle()
+    }
+    this.restoreCursorFocus()
   }
 
   public superscript() {
@@ -429,28 +471,38 @@ export class CommandAdapt {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getSelection()
-    if (!selection) return
-    selection.forEach(el => {
-      el.color = payload
-    })
-    this.draw.render({
-      isSetCursor: false,
-      isCompute: false
-    })
+    if (selection?.length) {
+      selection.forEach(el => {
+        el.color = payload
+      })
+      this.draw.render({
+        isSetCursor: false,
+        isCompute: false
+      })
+    } else {
+      this.range.setPendingStyleValue('color', payload)
+      this.range.setRangeStyle()
+    }
+    this.restoreCursorFocus()
   }
 
   public highlight(payload: string) {
     const isReadonly = this.draw.isReadonly()
     if (isReadonly) return
     const selection = this.range.getSelection()
-    if (!selection) return
-    selection.forEach(el => {
-      el.highlight = payload
-    })
-    this.draw.render({
-      isSetCursor: false,
-      isCompute: false
-    })
+    if (selection?.length) {
+      selection.forEach(el => {
+        el.highlight = payload
+      })
+      this.draw.render({
+        isSetCursor: false,
+        isCompute: false
+      })
+    } else {
+      this.range.setPendingStyleValue('highlight', payload)
+      this.range.setRangeStyle()
+    }
+    this.restoreCursorFocus()
   }
 
   public title(payload: TitleLevel | null) {
@@ -559,17 +611,31 @@ export class CommandAdapt {
     if (isReadonly) return
     const { startIndex, endIndex } = this.range.getRange()
     if (!~startIndex && !~endIndex) return
-    const rangeRow = this.range.getRangeRow()
-    if (!rangeRow) return
-    const positionList = this.position.getPositionList()
     const elementList = this.draw.getElementList()
-    for (let p = 0; p < positionList.length; p++) {
-      const position = positionList[p]
-      const rowSet = rangeRow.get(position.pageNo)
-      if (!rowSet) continue
-      if (rowSet.has(position.rowNo)) {
-        elementList[p].marginTop = before
-        elementList[p].marginBottom = after
+    // Walk back to find the ZERO element that starts the paragraph containing startIndex
+    let paraStart = startIndex
+    while (paraStart > 0 && elementList[paraStart].value !== ZERO) {
+      paraStart--
+    }
+    // Walk forward to find the last element of the paragraph containing endIndex
+    let paraEnd = endIndex
+    while (
+      paraEnd < elementList.length - 1 &&
+      elementList[paraEnd + 1].value !== ZERO
+    ) {
+      paraEnd++
+    }
+    // Set marginTop on ZERO paragraph markers, marginBottom on the element
+    // just before the next paragraph (only ZERO markers and pre-ZERO elements
+    // are read by the renderer — other elements are ignored for spacing)
+    for (let p = paraStart; p <= paraEnd; p++) {
+      const el = elementList[p]
+      if (el.value === ZERO) {
+        el.marginTop = before
+      }
+      const nextEl = elementList[p + 1]
+      if (!nextEl || nextEl.value === ZERO) {
+        el.marginBottom = after
       }
     }
     const isSetCursor = startIndex === endIndex

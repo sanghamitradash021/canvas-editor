@@ -157,8 +157,8 @@ export class CanvasEvent {
     click.threeClick(this)
   }
 
-  public input(data: string) {
-    input(data, this)
+  public input(data: string, options?: { isPaste?: boolean }) {
+    input(data, this, options)
   }
 
   public cut() {

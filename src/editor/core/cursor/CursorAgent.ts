@@ -72,7 +72,7 @@ export class CursorAgent {
       if (item.kind === 'string') {
         if (item.type === 'text/plain' && !isHTML) {
           item.getAsString(plainText => {
-            this.canvasEvent.input(plainText)
+            this.canvasEvent.input(plainText, { isPaste: true })
           })
         }
         if (item.type === 'text/html' && isHTML) {

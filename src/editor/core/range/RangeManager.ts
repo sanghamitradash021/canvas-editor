@@ -3,11 +3,25 @@ import { ZERO } from '../../dataset/constant/Common'
 import { TEXTLIKE_ELEMENT_TYPE } from '../../dataset/constant/Element'
 import { ControlComponent } from '../../dataset/enum/Control'
 import { IEditorOption } from '../../interface/Editor'
-import { IElement } from '../../interface/Element'
+import { IElement, IElementStyle } from '../../interface/Element'
 import { EventBusMap } from '../../interface/EventBus'
 import { IRangeStyle } from '../../interface/Listener'
 import { IRange, RangeRowArray, RangeRowMap } from '../../interface/Range'
 import { getAnchorElement } from '../../utils/element'
+
+export type IPendingStyle = Partial<
+  Pick<
+    IElementStyle,
+    | 'bold'
+    | 'italic'
+    | 'underline'
+    | 'strikeout'
+    | 'font'
+    | 'size'
+    | 'color'
+    | 'highlight'
+  >
+>
 import { Draw } from '../draw/Draw'
 import { EventBus } from '../event/eventbus/EventBus'
 import { HistoryManager } from '../history/HistoryManager'
@@ -22,6 +36,7 @@ export class RangeManager {
   private eventBus: EventBus<EventBusMap>
   private position: Position
   private historyManager: HistoryManager
+  private pendingStyle: IPendingStyle
 
   constructor(draw: Draw) {
     this.draw = draw
@@ -33,6 +48,68 @@ export class RangeManager {
     this.range = {
       startIndex: -1,
       endIndex: -1
+    }
+    this.pendingStyle = {}
+  }
+
+  public getPendingStyle(): IPendingStyle {
+    return this.pendingStyle
+  }
+
+  public hasPendingStyle(): boolean {
+    return Object.keys(this.pendingStyle).length > 0
+  }
+
+  public clearPendingStyle() {
+    if (this.hasPendingStyle()) {
+      this.pendingStyle = {}
+    }
+  }
+
+  public consumePendingStyle(): IPendingStyle {
+    const style = this.pendingStyle
+    this.pendingStyle = {}
+    return style
+  }
+
+  private getAnchorElementAtCursor(): IElement | null {
+    const { endIndex } = this.range
+    if (!~endIndex) return null
+    const elementList = this.draw.getElementList()
+    return getAnchorElement(elementList, endIndex)
+  }
+
+  public togglePendingBooleanStyle(
+    key: 'bold' | 'italic' | 'underline' | 'strikeout'
+  ) {
+    const anchor = this.getAnchorElementAtCursor()
+    const baseVal = !!anchor?.[key]
+    const currentEff =
+      this.pendingStyle[key] !== undefined
+        ? !!this.pendingStyle[key]
+        : baseVal
+    const nextVal = !currentEff
+    if (nextVal === baseVal) {
+      delete this.pendingStyle[key]
+    } else {
+      this.pendingStyle[key] = nextVal
+    }
+  }
+
+  public setPendingStyleValue<K extends keyof IPendingStyle>(
+    key: K,
+    value: IPendingStyle[K]
+  ) {
+    const anchor = this.getAnchorElementAtCursor()
+    const baseVal = anchor?.[key]
+    if (value === undefined || value === null || value === '') {
+      delete this.pendingStyle[key]
+      return
+    }
+    if (value === baseVal) {
+      delete this.pendingStyle[key]
+    } else {
+      this.pendingStyle[key] = value
     }
   }
 
@@ -204,8 +281,15 @@ export class RangeManager {
     startTdIndex?: number,
     endTdIndex?: number,
     startTrIndex?: number,
-    endTrIndex?: number
+    endTrIndex?: number,
+    preservePendingStyle = false
   ) {
+    const rangeChanged =
+      this.range.startIndex !== startIndex ||
+      this.range.endIndex !== endIndex
+    if (rangeChanged && !preservePendingStyle) {
+      this.clearPendingStyle()
+    }
     this.range.startIndex = startIndex
     this.range.endIndex = endIndex
     this.range.tableId = tableId
@@ -266,18 +350,25 @@ export class RangeManager {
     }
     if (!curElement) return
     // 选取元素列表
-    const curElementList = this.getSelection() || [curElement]
+    const selection = this.getSelection()
+    const curElementList = selection || [curElement]
+    // overlay pendingStyle when collapsed
+    const pending = !selection ? this.pendingStyle : {}
+    const effectiveElement: IElement = { ...curElement, ...pending }
+    const effectiveList = selection
+      ? curElementList
+      : [effectiveElement]
     // 类型
-    const type = curElement.type || ElementType.TEXT
+    const type = effectiveElement.type || ElementType.TEXT
     // 富文本
-    const font = curElement.font || this.options.defaultFont
-    const size = curElement.size || this.options.defaultSize
-    const bold = !~curElementList.findIndex(el => !el.bold)
-    const italic = !~curElementList.findIndex(el => !el.italic)
-    const underline = !~curElementList.findIndex(el => !el.underline)
-    const strikeout = !~curElementList.findIndex(el => !el.strikeout)
-    const color = curElement.color || null
-    const highlight = curElement.highlight || null
+    const font = effectiveElement.font || this.options.defaultFont
+    const size = effectiveElement.size || this.options.defaultSize
+    const bold = !~effectiveList.findIndex(el => !el.bold)
+    const italic = !~effectiveList.findIndex(el => !el.italic)
+    const underline = !~effectiveList.findIndex(el => !el.underline)
+    const strikeout = !~effectiveList.findIndex(el => !el.strikeout)
+    const color = effectiveElement.color || null
+    const highlight = effectiveElement.highlight || null
     const rowFlex = curElement.rowFlex || null
     const rowMargin = curElement.rowMargin || this.options.defaultRowMargin
     const marginTop = curElement.marginTop || 0
@@ -344,18 +435,25 @@ export class RangeManager {
     }
     if (!curElement) return
     // 选取元素列表
-    const curElementList = this.getSelection() || [curElement]
+    const selection = this.getSelection()
+    const curElementList = selection || [curElement]
+    // overlay pendingStyle when collapsed
+    const pending = !selection ? this.pendingStyle : {}
+    const effectiveElement: IElement = { ...curElement, ...pending }
+    const effectiveList = selection
+      ? curElementList
+      : [effectiveElement]
     // 类型
-    const type = curElement.type || ElementType.TEXT
+    const type = effectiveElement.type || ElementType.TEXT
     // 富文本
-    const font = curElement.font || this.options.defaultFont
-    const size = curElement.size || this.options.defaultSize
-    const bold = !~curElementList.findIndex(el => !el.bold)
-    const italic = !~curElementList.findIndex(el => !el.italic)
-    const underline = !~curElementList.findIndex(el => !el.underline)
-    const strikeout = !~curElementList.findIndex(el => !el.strikeout)
-    const color = curElement.color || null
-    const highlight = curElement.highlight || null
+    const font = effectiveElement.font || this.options.defaultFont
+    const size = effectiveElement.size || this.options.defaultSize
+    const bold = !~effectiveList.findIndex(el => !el.bold)
+    const italic = !~effectiveList.findIndex(el => !el.italic)
+    const underline = !~effectiveList.findIndex(el => !el.underline)
+    const strikeout = !~effectiveList.findIndex(el => !el.strikeout)
+    const color = effectiveElement.color || null
+    const highlight = effectiveElement.highlight || null
     const rowFlex = curElement.rowFlex || null
     const rowMargin = curElement.rowMargin || this.options.defaultRowMargin
     const marginTop = curElement.marginTop || 0
